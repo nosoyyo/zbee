@@ -1,15 +1,14 @@
 import os
 import zmq
 import json
+import time
 import redis
 from wxpy import Bot, ensure_one
 
 from hbee import HealthBee
 from mail import mailQRCode
-
-
-Q_LIMIT = 50
-P_LIMIT = 60 * 15
+from utils.sigmaactions import sigmaActions
+from utils.safecheck import slowDown, safeCheck
 
 
 class WXBeeError(Exception):
@@ -58,16 +57,19 @@ class WXBee():
     def tryRestart(self):
         self.bee = Bot(qr_callback=mailQRCode)
 
-    def safeCheck(self):
-        pass
-
+    @safeCheck
+    @slowDown
     def _SEND(self, _str):
         try:
             self.dest.send(_str)
         except Exception as e:
             print(e)
             raise WXBeeError(e)
+        finally:
+            sigmaActions(self.r, time.time())
 
+    @safeCheck
+    @slowDown
     def _SEND_VIDEO(self, _video):
         if isinstance(_video, str) and os.path.isfile(_video):
             print(f'sending {_video}...')
@@ -79,16 +81,23 @@ class WXBee():
         except Exception as e:
             print(e)
             raise WXBeeError(e)
+        finally:
+            sigmaActions(self.r, time.time())
 
     def send(self, data):
         self.dataHandler(data)
 
-    def dataHandler(self, data):
+    def dataHandler(self, data: bytes):
+        '''
+        :param data: <>
+        '''
+
         try:
             j = json.loads(data)
         except json.decoder.JSONDecodeError:
+            data = data.decode()
             if '\\U' in data:
-                data = '{"string": "emoji is not supported!"}'
+                data = '{"string": "emoji is not supported!"}'.encode()
             elif "'" in data:
                 data = data.replace("'", '"').encode()
             j = json.loads(data)
