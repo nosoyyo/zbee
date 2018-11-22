@@ -5,7 +5,7 @@ import redis
 import psutil
 import schedule
 
-from tiempo import fancyTQ
+from utils.tiempo import fancyTQ, fancyTiempo
 
 
 class HealthBee():
@@ -25,7 +25,10 @@ class HealthBee():
         pid = self.r.hkeys(hostname) or None
         print(f'{hostname} pid before init: {pid}')
         if pid:
-            self.r.hdel(hostname, pid)
+            keys = self.r.hkeys(hostname)
+            for key in keys:
+                self.r.hdel(hostname, key)
+            print(f'{len(keys)} previous pids cleared.')
         pid = os.getpid()
         self.r.hset(hostname, pid, time.time())
         self.PID = pid
@@ -39,20 +42,24 @@ class HealthBee():
             self.r.hdel(self.hostname, self.PID)
         schedule.clear()
 
-    def healthCheck(self):
+    def healthCheck(self, hostname=None):
 
         flag = False
-        info = None
+        hostname = hostname or self.hostname
+        now = time.time()
+        info = f'checking {hostname} on {fancyTiempo()}... '
+        pid = int(self.r.hkeys(hostname)[0]) or None
+        print(f'get {hostname} pid: {pid}')
         pids = psutil.pids()
-        if self.PID:
-            if self.PID in pids:
-                t = self.r.hget(self.hostname, self.PID)
+        if pid:
+            if pid in pids:
+                t = self.r.hget(hostname, pid)
                 if t:
-                    q = time.time() - float(t)
-                    info = f'{self.hostname} has been working for {fancyTQ(q)}'
+                    q = now - float(t)
+                    info += f"{hostname} has been working for {fancyTQ(q)}"
                     flag = True
         else:
-            info = 'HealthBee got no PID! must be something wrong!'
+            info += 'HealthBee got no PID! must be something wrong!'
 
         print(info)
         self.pipe_sender.send(info.encode())
